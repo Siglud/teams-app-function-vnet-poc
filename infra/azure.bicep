@@ -38,6 +38,27 @@ resource storage 'Microsoft.Storage/storageAccounts@2021-06-01' = {
   sku: {
     name: storageSKU // You can follow https://aka.ms/teamsfx-bicep-add-param-tutorial to add functionStorageSku property to provisionParameters to override the default value "Standard_LRS".
   }
+  properties: {
+    allowSharedKeyAccess: false
+    allowBlobPublicAccess: false
+    networkAcls: {
+      bypass: 'AzureServices'
+      defaultAction: 'Deny'
+    }
+  }
+}
+
+// https://docs.microsoft.com/en-us/azure/role-based-access-control/built-in-roles
+var StorageBlobDataContributorRole = 'ba92f5b4-2d11-453d-a403-e96b0029c9fe'
+
+resource storageRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid('resourceBaseName-${uniqueString('StorageRoleAssignment')}')
+  scope: storage
+  properties: {
+    principalId: identity.properties.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: resourceId('Microsoft.Authorization/roleDefinitions', StorageBlobDataContributorRole)
+  }
 }
 
 // Azure Function that host your app
@@ -52,24 +73,12 @@ resource functionApp 'Microsoft.Web/sites@2021-02-01' = {
       alwaysOn: true
       appSettings: [
         {
-          name: 'AzureWebJobsDashboard'
-          value: 'DefaultEndpointsProtocol=https;AccountName=${storage.name};AccountKey=${listKeys(storage.id, storage.apiVersion).keys[0].value};EndpointSuffix=${environment().suffixes.storage}' // Azure Functions internal setting
-        }
-        {
-          name: 'AzureWebJobsStorage'
-          value: 'DefaultEndpointsProtocol=https;AccountName=${storage.name};AccountKey=${listKeys(storage.id, storage.apiVersion).keys[0].value};EndpointSuffix=${environment().suffixes.storage}' // Azure Functions internal setting
-        }
-        {
           name: 'FUNCTIONS_EXTENSION_VERSION'
           value: '~4' // Use Azure Functions runtime v4
         }
         {
           name: 'FUNCTIONS_WORKER_RUNTIME'
           value: 'node' // Set runtime to NodeJS
-        }
-        {
-          name: 'WEBSITE_CONTENTAZUREFILECONNECTIONSTRING'
-          value: 'DefaultEndpointsProtocol=https;AccountName=${storage.name};AccountKey=${listKeys(storage.id, storage.apiVersion).keys[0].value};EndpointSuffix=${environment().suffixes.storage}' // Azure Functions internal setting
         }
         {
           name: 'WEBSITE_RUN_FROM_PACKAGE'
@@ -98,6 +107,14 @@ resource functionApp 'Microsoft.Web/sites@2021-02-01' = {
         {
           name: 'SCM_ZIPDEPLOY_DONOT_PRESERVE_FILETIME'
           value: '1' // Zipdeploy files will always be updated. Detail: https://aka.ms/teamsfx-zipdeploy-donot-preserve-filetime
+        }
+        {
+          name: 'STORAGE_NAME'
+          value: storageName
+        }
+        {
+          name: 'MANAGED_IDENTITY_ID'
+          value: identity.properties.clientId
         }
       ]
       ftpsState: 'FtpsOnly'
