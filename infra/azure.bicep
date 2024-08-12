@@ -15,6 +15,54 @@ param identityName string = resourceBaseName
 param location string = resourceGroup().location
 param storageName string = resourceBaseName
 
+// Define a Network Security Group
+resource networkSecurityGroup 'Microsoft.Network/networkSecurityGroups@2023-11-01' = {
+  name: '${resourceBaseName}-NSG'
+  location: location
+  properties: {
+    securityRules: []
+  }
+}
+
+// Define a Virtual Network
+resource vnet 'Microsoft.Network/virtualNetworks@2023-11-01' = {
+  name: '${resourceBaseName}-VNet'
+  location: location
+  properties: {
+    addressSpace: {
+      addressPrefixes: ['10.0.0.0/16']
+    }
+    subnets: [
+      {
+        name: 'default'
+        properties: {
+          addressPrefix: '10.0.10.0/24'
+          networkSecurityGroup: {
+            id: networkSecurityGroup.id
+          }
+          serviceEndpoints: [
+            {
+              service: 'Microsoft.Storage'
+              locations: ['*']
+            }
+          ]
+          delegations: [
+            {
+              name: 'delegation'
+              properties: {
+                serviceName: 'Microsoft.Web/serverfarms'
+              }
+              type: 'Microsoft.Network/virtualNetworks/subnets/delegations'
+            }
+          ]
+          privateEndpointNetworkPolicies: 'Disabled'
+          privateLinkServiceNetworkPolicies: 'Disabled'
+        }
+      }
+    ]
+  }
+}
+
 resource identity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
   location: location
   name: identityName
@@ -44,6 +92,12 @@ resource storage 'Microsoft.Storage/storageAccounts@2021-06-01' = {
     networkAcls: {
       bypass: 'AzureServices'
       defaultAction: 'Deny'
+      virtualNetworkRules: [
+        {
+          id: vnet.properties.subnets[0].id
+          action: 'Allow'
+        }
+      ]
     }
   }
 }
@@ -57,7 +111,7 @@ resource storageRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-
   properties: {
     principalId: identity.properties.principalId
     principalType: 'ServicePrincipal'
-    roleDefinitionId: resourceId('Microsoft.Authorization/roleDefinitions', StorageBlobDataContributorRole)
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', StorageBlobDataContributorRole)
   }
 }
 
@@ -69,6 +123,7 @@ resource functionApp 'Microsoft.Web/sites@2021-02-01' = {
   properties: {
     serverFarmId: serverfarm.id
     httpsOnly: true
+    virtualNetworkSubnetId: vnet.properties.subnets[0].id
     siteConfig: {
       alwaysOn: true
       appSettings: [
