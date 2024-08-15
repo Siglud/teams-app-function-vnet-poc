@@ -37,3 +37,4 @@ _storage_emulator
 
 # Dev tool directories
 /devTools/
+/env
